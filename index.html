@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>金額累積程式 V5.5 (免信用卡同步版)</title>
+    <!-- 引入字體 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 引入 Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    
+    <style>
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: #f8fafc; }
+        .category-card { transition: all 0.3s ease; }
+        .category-card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); }
+        .input-field:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3); }
+        .btn:active { transform: scale(0.97); }
+        .modal { transition: all 0.3s ease; }
+        .modal-overlay { background-color: rgba(0, 0, 0, 0.5); transition: all 0.3s ease; }
+        
+        select {
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 0.5rem center;
+            background-repeat: no-repeat;
+            background-size: 1.5em 1.5em;
+            padding-right: 2.5rem;
+            -webkit-appearance: none; appearance: none;
+        }
+        .budget-bar-bg { background-color: #e2e8f0; border-radius: 9999px; height: 6px; width: 100%; overflow: hidden; }
+        .budget-bar-fill { height: 100%; border-radius: 9999px; transition: width 0.5s ease; }
+        
+        .sync-status { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .sync-online { background-color: #10B981; box-shadow: 0 0 5px #10B981; }
+        .sync-offline { background-color: #EF4444; }
+        .sync-loading { background-color: #F59E0B; animation: pulse 1.5s infinite; }
+        
+        .toast {
+            visibility: hidden; min-width: 250px; background-color: #333; color: #fff; text-align: center;
+            border-radius: 8px; padding: 12px; position: fixed; z-index: 100; left: 50%; bottom: 30px;
+            transform: translateX(-50%); box-shadow: 0 4px 12px rgba(0,0,0,0.15); opacity: 0; transition: opacity 0.3s, bottom 0.3s;
+        }
+        .toast.show { visibility: visible; opacity: 1; bottom: 50px; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div class="container mx-auto px-4 py-6 max-w-7xl">
+        <!-- Top Bar -->
+        <header class="mb-8 bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-2 w-full md:w-auto">
+                <div class="relative flex-1 md:flex-none max-w-[200px]">
+                    <select id="book-selector" onchange="switchBook(this.value)" class="appearance-none bg-gray-50 border border-gray-300 text-gray-900 text-lg rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-4 pr-10 py-2 font-bold cursor-pointer hover:bg-gray-100 transition truncate">
+                        <!-- Options filled by JS -->
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                        <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                    </div>
+                </div>
+                <!-- Add Book -->
+                <button type="button" onclick="openInputModal('new')" class="text-blue-600 hover:text-blue-800 p-2 rounded-full hover:bg-blue-50 transition" title="新增記帳本">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                </button>
+                <!-- Edit Name -->
+                <button type="button" onclick="openInputModal('edit')" class="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100 transition" title="修改名稱">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                </button>
+                <!-- Delete Book -->
+                <button type="button" onclick="confirmDeleteBook()" class="text-red-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 transition" title="刪除此帳本">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="flex items-center gap-3 w-full md:w-auto justify-end flex-wrap">
+                <button onclick="openSyncModal()" class="btn bg-orange-50 hover:bg-orange-100 text-orange-700 px-4 py-2 rounded-lg flex items-center text-sm font-medium border border-orange-200 transition">
+                    <span id="sync-indicator" class="sync-status sync-offline"></span>
+                    雲端同步
+                </button>
+
+                <button onclick="openManageGroupsModal()" class="btn bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg flex items-center text-sm font-medium transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    管理
+                </button>
+
+                <!-- Export/Import -->
+                <div class="dropdown inline-block relative group">
+                    <button class="btn bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg flex items-center text-sm font-medium shadow-sm transition">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                        </svg>
+                        資料存取
+                    </button>
+                    <div class="dropdown-content absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 hidden group-hover:block border border-gray-100">
+                        <button onclick="document.getElementById('import-file').click()" class="block w-full text-left px-4 py-3 hover:bg-gray-100 transition-colors border-b border-gray-100 text-sm text-gray-700">
+                            匯入備份 (JSON)
+                        </button>
+                        <button onclick="exportData('json')" class="block w-full text-left px-4 py-3 hover:bg-gray-100 transition-colors text-sm text-gray-700">
+                            匯出備份 (JSON)
+                        </button>
+                        <button onclick="exportData('csv')" class="block w-full text-left px-4 py-3 hover:bg-gray-100 transition-colors text-sm text-gray-700">
+                            匯出報表 (Excel)
+                        </button>
+                    </div>
+                </div>
+                <input type="file" id="import-file" class="hidden" accept=".json" onchange="importData(this)">
+            </div>
+        </header>
+
+        <!-- Dynamic Groups Grid -->
+        <div id="groups-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="hidden text-center py-20 bg-white rounded-xl shadow-sm border border-gray-100">
+            <div class="bg-blue-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+            </div>
+            <h3 class="text-xl font-bold text-gray-800 mb-2">此帳本尚無付款方式</h3>
+            <button onclick="openManageGroupsModal()" class="btn bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl shadow-lg shadow-blue-200 mt-4">
+                新增付款方式
+            </button>
+        </div>
+
+        <!-- Stats Section -->
+        <div class="mt-10 bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100">
+            <div class="p-6 border-b border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
+                <h2 class="text-xl font-bold text-gray-800 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    統計圖表
+                </h2>
+                <div class="flex items-center bg-yellow-50 px-4 py-2 rounded-lg border border-yellow-100">
+                    <span class="text-sm font-bold text-yellow-700 mr-2">匯率設定</span>
+                    <span class="text-sm text-gray-600 mr-2">1 JPY ≈</span>
+                    <input type="number" id="exchange-rate-input" class="w-20 px-2 py-1 text-sm border border-yellow-300 rounded text-center font-bold text-gray-700 focus:outline-none focus:border-yellow-500" step="0.001" onchange="updateExchangeRate(this.value)">
+                    <span class="text-sm text-gray-600 ml-2">TWD</span>
+                </div>
+            </div>
+            <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="flex flex-col">
+                    <h3 class="text-center text-gray-600 mb-4 font-medium flex items-center justify-center">
+                        花費類別分佈 (台幣)
+                        <span class="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded border border-green-200">日幣已換算</span>
+                    </h3>
+                    <div class="chart-container flex-1 min-h-[250px] relative">
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                    <div class="mt-6 text-center p-4 bg-gray-50 rounded-xl border border-gray-100">
+                        <div class="text-xs text-gray-500 mb-1 uppercase tracking-wider">目前總花費 (換算台幣)</div>
+                        <div class="flex justify-center items-baseline text-gray-800">
+                            <span class="text-lg mr-1">$</span>
+                            <span id="chart-total-display" class="font-bold text-3xl">0</span>
+                            <span class="ml-2 text-sm font-medium text-gray-500">TWD</span>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-center text-gray-600 mb-4 font-medium">人員總花費明細</h3>
+                    <div id="person-summary-container" class="space-y-4"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="mt-6 bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+            <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                最近操作記錄
+            </h2>
+            <div class="overflow-auto max-h-60">
+                <ul class="space-y-2" id="history-list">
+                    <li class="text-gray-500 italic text-center py-4">尚無操作記錄</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="input-modal" class="fixed inset-0 flex items-center justify-center z-50 hidden">
+        <div class="modal-overlay absolute inset-0" onclick="closeModal('input-modal')"></div>
+        <div class="modal bg-white w-full max-w-sm mx-4 rounded-xl shadow-2xl z-10 overflow-hidden transform transition-all">
+            <div class="p-6">
+                <h3 class="text-lg font-bold text-gray-800 mb-4" id="input-modal-title">輸入</h3>
+                <input type="text" id="input-modal-value" class="input-field w-full px-3 py-2 border rounded-md mb-4 bg-gray-50 focus:bg-white" placeholder="請輸入...">
+                <div class="flex justify-end gap-2">
+                    <button onclick="closeModal('input-modal')" class="btn bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg">取消</button>
+                    <button id="input-modal-confirm" class="btn bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">確認</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="confirm-modal" class="fixed inset-0 flex items-center justify-center z-50 hidden">
+        <div class="modal-overlay absolute inset-0" onclick="closeModal('confirm-modal')"></div>
+        <div class="modal bg-white w-full max-w-sm mx-4 rounded-xl shadow-2xl z-10 overflow-hidden">
+            <div class="p-6">
+                <div class="text-center mb-4">
+                    <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-3">
+                        <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <h3 class="text-lg leading-6 font-medium text-gray-900" id="confirm-modal-title">確定嗎？</h3>
+                    <div class="mt-2"><p class="text-sm text-gray-500" id="confirm-modal-desc">此操作無法復原。</p></div>
+                </div>
+                <div class="flex justify-center gap-3">
+                    <button onclick="closeModal('confirm-modal')" class="btn bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg w-full">取消</button>
+                    <button id="confirm-modal-btn" class="btn bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg w-full">確定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="history-modal" class="fixed inset-0 flex items-center justify-center z-50 hidden">
+        <div class="modal-overlay absolute inset-0" onclick="closeModal('history-modal')"></div>
+        <div class="modal bg-white w-full max-w-4xl mx-4 rounded-xl shadow-2xl z-10 overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="p-6 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                <div>
+                    <h3 class="text-xl font-bold text-gray-800" id="modal-title">記錄明細</h3>
+                    <div class="text-sm text-gray-500 mt-1">總計: <span id="modal-total-display" class="font-bold text-blue-600">0</span></div>
+                </div>
+                <button onclick="closeModal('history-modal')" class="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-0">
+                <table class="w-full min-w-[600px]">
+                    <thead class="bg-gray-50 sticky top-0 z-10 shadow-sm">
+                        <tr>
+                            <th class="py-3 px-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">時間</th>
+                            <th class="py-3 px-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">金額</th>
+                            <th class="py-3 px-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">類別</th>
+                            <th class="py-3 px-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">備註</th>
+                            <th class="py-3 px-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="modal-history-body" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="manage-groups-modal" class="fixed inset-0 flex items-center justify-center z-50 hidden">
+        <div class="modal-overlay absolute inset-0" onclick="closeModal('manage-groups-modal')"></div>
+        <div class="modal bg-white w-full max-w-lg mx-4 rounded-xl shadow-2xl z-10 overflow-hidden flex flex-col max-h-[85vh]">
+            <div class="p-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                <h3 class="text-lg font-bold text-gray-800">管理付款方式</h3>
+                <button onclick="closeModal('manage-groups-modal')" class="text-gray-400 hover:text-gray-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="p-6 overflow-y-auto flex-1 space-y-6">
+                <div id="groups-list-editor" class="space-y-3"></div>
+                <div class="border-t border-gray-100 pt-6">
+                    <h4 class="font-bold text-sm text-gray-700 mb-3 flex items-center">新增付款方式</h4>
+                    <div class="space-y-3 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <div class="flex gap-2">
+                            <input type="text" id="new-group-name" placeholder="名稱 (如: 信用卡)" class="input-field flex-1 px-3 py-2 border rounded-md bg-white">
+                            <select id="new-group-color" class="input-field border rounded-md px-2 w-24 bg-white">
+                                <option value="blue">藍色</option><option value="green">綠色</option><option value="purple">紫色</option><option value="pink">粉色</option><option value="orange">橘色</option><option value="teal">青色</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <select id="new-group-person" class="input-field border rounded-md px-3 py-2 bg-white text-sm"><option value="" disabled selected>預設付款人</option><option value="軒">軒</option><option value="靖">靖</option></select>
+                            <select id="new-group-currency" class="input-field border rounded-md px-3 py-2 bg-white text-sm"><option value="" disabled selected>幣別</option><option value="TWD">TWD (台幣)</option><option value="JPY">JPY (日幣)</option></select>
+                        </div>
+                        <input type="number" id="new-group-budget" placeholder="預算上限 (選填)" class="input-field w-full px-3 py-2 border rounded-md bg-white text-sm">
+                        <textarea id="new-group-remark" placeholder="備註 (選填)" class="input-field w-full px-3 py-2 border rounded-md h-16 text-sm bg-white"></textarea>
+                        <button onclick="addNewGroup()" class="btn w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-md font-medium shadow-sm">確認新增</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="sync-modal" class="fixed inset-0 flex items-center justify-center z-50 hidden">
+        <div class="modal-overlay absolute inset-0" onclick="closeModal('sync-modal')"></div>
+        <div class="modal bg-white w-full max-w-md mx-4 rounded-xl shadow-2xl z-10 overflow-hidden">
+            <div class="p-6 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                <h3 class="text-lg font-bold text-gray-800">雲端同步設定 (Realtime Database)</h3>
+                <button onclick="closeModal('sync-modal')" class="text-gray-400 hover:text-gray-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-6">
+                <div class="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                    <label class="block text-xs font-bold text-blue-700 mb-2 uppercase tracking-wide">您的同步代碼 (Sync ID)</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="current-sync-id" class="flex-1 bg-white border border-blue-200 rounded px-3 py-2 font-mono text-center text-lg font-bold text-gray-700 select-all" readonly>
+                        <button onclick="copySyncId()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium shadow-sm transition">複製</button>
+                    </div>
+                    <p class="text-xs text-blue-600 mt-2">提示：若要多台裝置同步，請在每台裝置使用相同的「Firebase 設定」以及這個「同步代碼」。</p>
+                </div>
+                <div class="border-t border-gray-100 pt-6">
+                    <label class="block text-sm font-bold text-gray-700 mb-2">切換到其他代碼</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="target-sync-id" class="flex-1 input-field border rounded-lg px-3 py-2 font-mono" placeholder="貼上代碼...">
+                        <button onclick="loadFromSyncId()" class="bg-gray-800 hover:bg-black text-white px-4 py-2 rounded-lg font-medium shadow-sm transition">載入</button>
+                    </div>
+                </div>
+                <div class="border-t border-gray-100 pt-6 text-sm text-gray-500">
+                    <p>狀態：<span id="sync-status-text" class="font-bold">檢查中...</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast">
+        <div class="flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+            <span id="toast-message">操作成功！</span>
+        </div>
+    </div>
+
+    <!-- Firebase SDK (模組化) -->
+    <script type="module">
+        // -----------------------------------------------------------
+        //  ▼ 請在此處填入您的 Firebase 設定 (步驟 B) ▼
+        // -----------------------------------------------------------
+        window.userFirebaseConfig = {
+  apiKey: "AIzaSyDhcm0WvYrxt5xZ6NtHGucjRPKn5S2HupA",
+  authDomain: "expenses-tracker-bf8c2.firebaseapp.com",
+  projectId: "expenses-tracker-bf8c2",
+  storageBucket: "expenses-tracker-bf8c2.firebasestorage.app",
+  messagingSenderId: "328017386334",
+  appId: "1:328017386334:web:91b70d8b3e8a1a1cfc8dcf"
+};
+        // -----------------------------------------------------------
+        //  ▲ 設定結束 ▲
+        // -----------------------------------------------------------
+
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        // 改用 Realtime Database
+        import { getDatabase, ref, set, onValue, get } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
+
+        window.initMyFirebase = async () => {
+            const config = window.userFirebaseConfig;
+            // 檢查是否已填入 apiKey
+            if (!config || !config.apiKey || config.apiKey.length < 5) {
+                console.log("尚未設定 Firebase Config，運作於單機模式。");
+                updateSyncStatus(false, "單機模式 (未設定 Firebase)");
+                return;
+            }
+
+            try {
+                const app = initializeApp(config);
+                window.auth = getAuth(app);
+                window.db = getDatabase(app); // 使用 Realtime Database
+                window.dbRef = ref;
+                window.dbSet = set;
+                window.dbOnValue = onValue;
+                window.dbGet = get;
+
+                // 登入
+                await signInAnonymously(window.auth);
+                console.log("Firebase 登入成功");
+                
+                // 啟動監聽
+                window.setupRealtimeListener();
+                updateSyncStatus(true, "已連線");
+            } catch (e) {
+                console.error("Firebase 初始化失敗:", e);
+                updateSyncStatus(false, "連線失敗 (請檢查 Config)");
+            }
+        };
+        
+        // 啟動
+        window.initMyFirebase();
+    </script>
+
+    <script>
+        let moneyTrackerData = { version: "5.5", currentBookId: "default", books: {} };
+        let syncId = null;
+        let unsubscribeListener = null;
+        let categoryChartInst = null;
+        
+        const expenseCategories = ['機票', '上網', '交通', '保險', '住宿', '娛樂', '飲食', '購物', '其他'];
+        const people = ['靖', '軒'];
+        const colorMap = {
+            'blue': { bg: 'bg-blue-500', text: 'text-blue-600', border: 'border-blue-500', hover: 'hover:bg-blue-600', bar: 'bg-blue-400' },
+            'green': { bg: 'bg-green-500', text: 'text-green-600', border: 'border-green-500', hover: 'hover:bg-green-600', bar: 'bg-green-400' },
+            'purple': { bg: 'bg-purple-500', text: 'text-purple-600', border: 'border-purple-500', hover: 'hover:bg-purple-600', bar: 'bg-purple-400' },
+            'pink': { bg: 'bg-pink-500', text: 'text-pink-600', border: 'border-pink-500', hover: 'hover:bg-pink-600', bar: 'bg-pink-400' },
+            'orange': { bg: 'bg-orange-500', text: 'text-orange-600', border: 'border-orange-500', hover: 'hover:bg-orange-600', bar: 'bg-orange-400' },
+            'teal': { bg: 'bg-teal-500', text: 'text-teal-600', border: 'border-teal-500', hover: 'hover:bg-teal-600', bar: 'bg-teal-400' },
+        };
+
+        // --- Core Functions ---
+        function getCurrentBook() {
+            if (!moneyTrackerData.books[moneyTrackerData.currentBookId]) {
+                moneyTrackerData.books[moneyTrackerData.currentBookId] = { id: moneyTrackerData.currentBookId, name: "預設帳本", rate: 0.22, groups: [] };
+            }
+            return moneyTrackerData.books[moneyTrackerData.currentBookId];
+        }
+
+        function loadData() {
+            // 1. 先讀取本地 localStorage
+            const stored = localStorage.getItem('moneyTrackerV4');
+            if (stored) moneyTrackerData = JSON.parse(stored);
+            else if (!moneyTrackerData.books['default']) moneyTrackerData.books['default'] = { id: 'default', name: '預設帳本', rate: 0.22, groups: [] };
+            
+            // 2. 讀取 Sync ID
+            const storedSyncId = localStorage.getItem('moneyTrackerSyncId');
+            if (storedSyncId) {
+                syncId = storedSyncId;
+            } else {
+                syncId = 'book-' + Math.random().toString(36).substr(2, 6);
+                localStorage.setItem('moneyTrackerSyncId', syncId);
+            }
+            
+            renderUI();
+        }
+
+        function saveData() {
+            // 1. 存本地
+            localStorage.setItem('moneyTrackerV4', JSON.stringify(moneyTrackerData));
+            // 2. 嘗試存雲端
+            saveToCloud();
+        }
+
+        function renderUI() {
+            const book = getCurrentBook();
+            const el = document.getElementById('exchange-rate-input');
+            if(el) el.value = book.rate || 0.22;
+            
+            updateBookSelector();
+            const container = document.getElementById('groups-container');
+            container.innerHTML = '';
+            
+            if (!book.groups || book.groups.length === 0) {
+                document.getElementById('empty-state').classList.remove('hidden');
+            } else {
+                document.getElementById('empty-state').classList.add('hidden');
+                book.groups.forEach(g => container.innerHTML += createGroupCard(g));
+            }
+            updateCharts();
+            renderHistoryLog();
+        }
+
+        // --- Firebase Sync Logic (Realtime Database Version) ---
+        async function saveToCloud() {
+            if (!window.db || !syncId) return; 
+            const indicator = document.getElementById('sync-indicator');
+            if(indicator) indicator.classList.add('sync-loading');
+            
+            try {
+                // 儲存路徑: apps/moneyTracker/sync/{syncId}
+                const pathRef = window.dbRef(window.db, 'apps/moneyTracker/sync/' + syncId);
+                await window.dbSet(pathRef, { payload: JSON.stringify(moneyTrackerData), updatedAt: new Date().toISOString() });
+                if(indicator) { indicator.classList.remove('sync-loading'); indicator.classList.add('sync-online'); }
+            } catch (e) {
+                console.error("Save cloud error:", e);
+                if(indicator) { indicator.classList.remove('sync-loading'); indicator.classList.add('sync-offline'); }
+            }
+        }
+
+        window.setupRealtimeListener = function() {
+            if (!window.db || !syncId) return;
+            // Realtime DB 的監聽機制不同，通常不需要手動取消 unsubscribe，直接覆蓋即可，或者如果需要更嚴謹，可以先 off
+            // 這裡為了簡單，我們直接建立新的監聽
+
+            const pathRef = window.dbRef(window.db, 'apps/moneyTracker/sync/' + syncId);
+            window.dbOnValue(pathRef, (snapshot) => {
+                const indicator = document.getElementById('sync-indicator');
+                const data = snapshot.val();
+                
+                if (data && data.payload && data.payload !== JSON.stringify(moneyTrackerData)) {
+                    moneyTrackerData = JSON.parse(data.payload);
+                    localStorage.setItem('moneyTrackerV4', data.payload);
+                    renderUI();
+                    console.log("從雲端同步資料成功");
+                }
+                
+                if(indicator) { 
+                    indicator.classList.remove('sync-loading', 'sync-offline'); 
+                    indicator.classList.add('sync-online'); 
+                }
+            }, (error) => {
+                console.error("Sync listener error:", error);
+                const indicator = document.getElementById('sync-indicator');
+                if(indicator) { indicator.classList.remove('sync-loading'); indicator.classList.add('sync-offline'); }
+            });
+        };
+
+        function updateSyncStatus(online, text) {
+            const ind = document.getElementById('sync-indicator');
+            const txt = document.getElementById('sync-status-text');
+            if(ind) ind.className = 'sync-status ' + (online ? 'sync-online' : 'sync-offline');
+            if(txt) txt.textContent = text;
+        }
+
+        function openSyncModal() { 
+            document.getElementById('sync-modal').classList.remove('hidden'); 
+            document.getElementById('current-sync-id').value = syncId || '...';
+        }
+        function copySyncId() { document.getElementById('current-sync-id').select(); document.execCommand('copy'); showToast('已複製'); }
+        
+        async function loadFromSyncId() {
+            const newId = document.getElementById('target-sync-id').value.trim();
+            if (!newId) return;
+            if (!window.db) return alert("請先設定 Firebase Config 才能使用此功能。");
+
+            showConfirm("切換同步？", "目前的資料將被雲端資料替換，確定嗎？", async () => {
+                try {
+                    const pathRef = window.dbRef(window.db, 'apps/moneyTracker/sync/' + newId);
+                    const snapshot = await window.dbGet(pathRef);
+                    
+                    if (snapshot.exists()) {
+                        syncId = newId; 
+                        localStorage.setItem('moneyTrackerSyncId', newId); 
+                        
+                        const data = snapshot.val();
+                        moneyTrackerData = JSON.parse(data.payload);
+                        localStorage.setItem('moneyTrackerV4', data.payload);
+                        renderUI();
+                        
+                        window.setupRealtimeListener(); 
+                        closeModal('sync-modal');
+                        showToast('同步成功，已切換至新代碼');
+                    } else {
+                        alert("找不到此代碼的雲端資料，請確認代碼是否正確。");
+                    }
+                } catch(e) {
+                    console.error(e);
+                    alert("同步失敗，請檢查 Config 設定或網路連線。");
+                }
+            });
+        }
+
+        // --- Logic (Existing) ---
+        function createGroupCard(group) {
+            const colors = colorMap[group.color] || colorMap['blue'];
+            const total = group.entries.reduce((a,c) => a + c.amount, 0);
+            const budget = group.budget ? parseInt(group.budget) : 0;
+            
+            let budgetHtml = '';
+            if (budget > 0) {
+                const remaining = budget - total;
+                const percent = Math.min(100, Math.max(0, (total / budget) * 100));
+                const isOver = remaining < 0;
+                budgetHtml = `<div class="mt-4 mb-2"><div class="flex justify-between text-xs mb-1 font-medium"><span class="text-gray-500">預算: ${budget.toLocaleString()}</span><span class="${isOver ? 'text-red-500' : 'text-green-600'}">${isOver ? '超支' : '剩餘'}: ${Math.abs(remaining).toLocaleString()}</span></div><div class="budget-bar-bg"><div class="budget-bar-fill ${isOver ? 'bg-red-500' : colors.bar}" style="width: ${percent}%"></div></div></div>`;
+            }
+
+            return `
+            <div class="category-card bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden relative border-t-4 ${colors.border}">
+                <div class="p-5">
+                    <div class="flex justify-between items-start">
+                        <div><h2 class="text-lg font-bold text-gray-800">${group.name}</h2><div class="flex gap-2 mt-1"><span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-200">👤 ${group.defaultPerson}</span><span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-200">💰 ${group.defaultCurrency}</span></div></div>
+                        <div class="text-right"><div class="text-2xl font-bold ${group.defaultCurrency==='JPY'?'text-pink-600':'text-blue-600'}">${total.toLocaleString()}<span class="text-xs font-normal text-gray-400">${group.defaultCurrency}</span></div></div>
+                    </div>
+                    ${budgetHtml}
+                    ${group.remark ? `<div class="mt-3 text-xs text-gray-500" onclick="this.querySelector('.rmk').classList.toggle('hidden')"><span class="cursor-pointer underline decoration-dotted">查看備註</span><div class="rmk hidden mt-1 p-2 bg-gray-50 rounded border border-gray-100 whitespace-pre-wrap">${group.remark}</div></div>` : '<div class="mt-2"></div>'}
+                    <div class="mt-4 space-y-2">
+                        <div class="flex gap-2">
+                            <input type="number" id="amt-${group.id}" placeholder="金額" class="input-field w-1/2 px-3 py-2 rounded-lg border border-gray-300 text-sm font-bold text-gray-700">
+                            <select id="cat-${group.id}" class="input-field w-1/2 px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white"><option value="" disabled selected>類別</option>${expenseCategories.map(c => `<option value="${c}">${c}</option>`).join('')}</select>
+                        </div>
+                        <div class="flex gap-2">
+                            <input type="text" id="note-${group.id}" placeholder="備註..." class="input-field flex-1 px-3 py-2 rounded-lg border border-gray-300 text-sm">
+                            <button onclick="addEntry('${group.id}')" class="btn ${colors.bg} hover:${colors.hover} text-white px-3 py-2 rounded-lg shadow-sm"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg></button>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-gray-50 flex justify-end gap-3 text-xs text-gray-500">
+                        <button onclick="triggerReset('${group.id}')" class="hover:text-red-500 flex items-center">歸零</button>
+                        <button onclick="showGroupHistory('${group.id}')" class="hover:text-blue-600 flex items-center font-medium">明細</button>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function addEntry(groupId) {
+            const group = getCurrentBook().groups.find(g => g.id === groupId);
+            const amtEl = document.getElementById(`amt-${groupId}`);
+            const catEl = document.getElementById(`cat-${groupId}`);
+            const noteEl = document.getElementById(`note-${groupId}`);
+            const amount = parseInt(amtEl.value);
+            
+            if (isNaN(amount) || amount <= 0) { showToast('請輸入有效金額'); return; }
+            if (!catEl.value) { showToast('請選擇類別'); return; }
+
+            group.entries.unshift({
+                id: 'e_' + Date.now(),
+                amount: amount,
+                category: catEl.value,
+                remark: noteEl.value.trim(),
+                currency: group.defaultCurrency,
+                person: group.defaultPerson,
+                timestamp: Date.now(),
+                dateStr: new Date().toLocaleString('zh-TW', {hour12:false, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'})
+            });
+            saveData();
+            renderUI();
+            showToast('已記帳');
+        }
+
+        function triggerReset(groupId) {
+            const group = getCurrentBook().groups.find(g => g.id === groupId);
+            const total = group.entries.reduce((a,c) => a+c.amount, 0);
+            if(total === 0) { showToast('目前餘額已為 0'); return; }
+            showConfirm("確定歸零？", `確定要將「${group.name}」歸零嗎？這會新增一筆負項來抵銷餘額。`, () => {
+                group.entries.unshift({ id: 'rst_' + Date.now(), amount: -total, category: '系統操作', remark: '歸零', currency: group.defaultCurrency, person: '系統', timestamp: Date.now(), dateStr: new Date().toLocaleString('zh-TW') });
+                saveData();
+                renderUI();
+                showToast('已歸零');
+            });
+        }
+
+        function deleteGroup(groupId) {
+            showConfirm("刪除付款方式？", "此操作將永久刪除該方式及其所有記錄。", () => {
+                const book = getCurrentBook();
+                book.groups = book.groups.filter(g => g.id !== groupId);
+                saveData();
+                renderUI();
+                openManageGroupsModal();
+                showToast('已刪除');
+            });
+        }
+
+        function showConfirm(title, desc, onConfirm) {
+            const modal = document.getElementById('confirm-modal');
+            document.getElementById('confirm-modal-title').textContent = title;
+            document.getElementById('confirm-modal-desc').textContent = desc;
+            const btn = document.getElementById('confirm-modal-btn');
+            const newBtn = btn.cloneNode(true);
+            btn.parentNode.replaceChild(newBtn, btn);
+            newBtn.onclick = () => { onConfirm(); closeModal('confirm-modal'); };
+            modal.classList.remove('hidden');
+        }
+
+        // --- Modals & Utils ---
+        function updateExchangeRate(val) {
+            const rate = parseFloat(val);
+            if (!isNaN(rate) && rate > 0) { getCurrentBook().rate = rate; saveData(); updateCharts(); }
+        }
+
+        function openManageGroupsModal() {
+            const list = document.getElementById('groups-list-editor');
+            list.innerHTML = '';
+            getCurrentBook().groups.forEach(g => {
+                list.innerHTML += `
+                <div class="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg shadow-sm">
+                    <div class="flex items-center gap-3"><div class="w-3 h-3 rounded-full bg-${g.color}-500"></div><div><div class="font-bold text-gray-800 text-sm">${g.name}</div><div class="text-xs text-gray-500">${g.defaultPerson} · ${g.defaultCurrency}</div></div></div>
+                    <button onclick="deleteGroup('${g.id}')" class="text-gray-400 hover:text-red-500 p-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                </div>`;
+            });
+            document.getElementById('manage-groups-modal').classList.remove('hidden');
+        }
+
+        function addNewGroup() {
+            const name = document.getElementById('new-group-name').value.trim();
+            if (!name) return showToast('請輸入名稱');
+            const group = {
+                id: 'g_' + Date.now(), name, 
+                person: document.getElementById('new-group-person').value,
+                currency: document.getElementById('new-group-currency').value,
+                color: document.getElementById('new-group-color').value,
+                budget: document.getElementById('new-group-budget').value,
+                remark: document.getElementById('new-group-remark').value,
+                entries: []
+            };
+            group.defaultPerson = group.person; group.defaultCurrency = group.currency;
+            getCurrentBook().groups.push(group);
+            saveData();
+            renderUI();
+            openManageGroupsModal();
+            showToast('已新增');
+            document.getElementById('new-group-name').value = '';
+        }
+
+        function showGroupHistory(groupId) {
+            const group = getCurrentBook().groups.find(g => g.id === groupId);
+            const modal = document.getElementById('history-modal');
+            const total = group.entries.reduce((a,c) => a+c.amount, 0);
+            document.getElementById('modal-title').textContent = `${group.name} 明細`;
+            document.getElementById('modal-total-display').textContent = `${total.toLocaleString()} ${group.defaultCurrency}`;
+            const tbody = document.getElementById('modal-history-body');
+            tbody.innerHTML = '';
+            
+            group.entries.forEach(e => {
+                const isReset = e.amount < 0;
+                tbody.innerHTML += `<tr class="hover:bg-gray-50 border-b border-gray-50 last:border-0"><td class="px-4 py-3 text-xs text-gray-500">${e.dateStr.split(' ')[0]}<br>${e.dateStr.split(' ')[1]}</td><td class="px-4 py-3 text-right font-mono text-sm ${isReset ? 'text-red-500' : 'text-gray-800'}">${e.amount.toLocaleString()}</td><td class="px-4 py-3 text-sm text-gray-700">${e.category}</td><td class="px-4 py-3 text-sm text-gray-500 max-w-[150px] truncate">${e.remark||'-'}</td><td class="px-4 py-3 text-center"><button onclick="triggerDeleteEntry('${groupId}', '${e.id}')" class="text-gray-400 hover:text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">✕</button></td></tr>`;
+            });
+            modal.classList.remove('hidden');
+        }
+
+        function triggerDeleteEntry(groupId, entryId) {
+            showConfirm("刪除記錄？", "確定要刪除這筆記錄嗎？", () => {
+                const group = getCurrentBook().groups.find(g => g.id === groupId);
+                group.entries = group.entries.filter(e => e.id !== entryId);
+                saveData();
+                renderUI();
+                showGroupHistory(groupId);
+                showToast('記錄已刪除');
+            });
+        }
+
+        function openInputModal(mode) {
+            const modal = document.getElementById('input-modal');
+            const input = document.getElementById('input-modal-value');
+            const btn = document.getElementById('input-modal-confirm');
+            const title = document.getElementById('input-modal-title');
+            input.value = '';
+            modal.classList.remove('hidden');
+            input.focus();
+            
+            const newBtn = btn.cloneNode(true);
+            btn.parentNode.replaceChild(newBtn, btn);
+
+            if (mode === 'new') {
+                title.textContent = "新增記帳本";
+                newBtn.onclick = () => {
+                    const name = input.value.trim();
+                    if (name) {
+                        const id = 'book_' + Date.now();
+                        moneyTrackerData.books[id] = { id, name, rate: 0.22, groups: [] };
+                        switchBook(id);
+                        closeModal('input-modal');
+                    }
+                };
+            } else {
+                title.textContent = "修改名稱";
+                input.value = getCurrentBook().name;
+                newBtn.onclick = () => {
+                    const name = input.value.trim();
+                    if (name) { getCurrentBook().name = name; saveData(); renderUI(); closeModal('input-modal'); }
+                };
+            }
+        }
+
+        function updateBookSelector() {
+            const sel = document.getElementById('book-selector');
+            sel.innerHTML = '';
+            Object.values(moneyTrackerData.books).forEach(b => {
+                const opt = document.createElement('option');
+                opt.value = b.id; opt.text = b.name;
+                opt.selected = b.id === moneyTrackerData.currentBookId;
+                sel.appendChild(opt);
+            });
+        }
+
+        function switchBook(id) {
+            moneyTrackerData.currentBookId = id;
+            saveData();
+            renderUI();
+            showToast(`已切換: ${getCurrentBook().name}`);
+        }
+
+        function confirmDeleteBook() {
+            const book = getCurrentBook();
+            showConfirm("刪除帳本？", `確定要刪除「${book.name}」嗎？`, () => {
+                delete moneyTrackerData.books[book.id];
+                const remaining = Object.keys(moneyTrackerData.books);
+                if (remaining.length === 0) {
+                    moneyTrackerData.books['default'] = { id: 'default', name: '預設帳本', rate: 0.22, groups: [] };
+                    moneyTrackerData.currentBookId = 'default';
+                } else {
+                    moneyTrackerData.currentBookId = remaining[0];
+                }
+                saveData();
+                renderUI();
+                showToast("帳本已刪除");
+            });
+        }
+
+        function initCharts() {
+            const ctx = document.getElementById('categoryChart').getContext('2d');
+            categoryChartInst = new Chart(ctx, {
+                type: 'pie',
+                data: { labels: [], datasets: [] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+            });
+        }
+
+        function updateCharts() {
+            const book = getCurrentBook();
+            const rate = book.rate || 0.22;
+            const catStats = {};
+            let totalTWD = 0;
+            const personStats = { '靖': {TWD:0, JPY:0}, '軒': {TWD:0, JPY:0} };
+
+            book.groups.forEach(g => {
+                g.entries.forEach(e => {
+                    if (e.amount > 0) {
+                        const val = e.currency === 'JPY' ? Math.round(e.amount * rate) : e.amount;
+                        totalTWD += val;
+                        catStats[e.category] = (catStats[e.category] || 0) + val;
+                        if (personStats[e.person]) personStats[e.person][e.currency] += e.amount;
+                    }
+                });
+            });
+
+            document.getElementById('chart-total-display').textContent = totalTWD.toLocaleString();
+            categoryChartInst.data.labels = Object.keys(catStats);
+            categoryChartInst.data.datasets = [{
+                data: Object.values(catStats),
+                backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#8AC926', '#F15BB5', '#C9CBCF'],
+                borderWidth: 1
+            }];
+            categoryChartInst.update();
+
+            const pCont = document.getElementById('person-summary-container');
+            pCont.innerHTML = '';
+            Object.keys(personStats).forEach((p, i) => {
+                const s = personStats[p];
+                pCont.innerHTML += `<div class="bg-gray-50 p-3 rounded-lg border border-gray-200"><div class="flex justify-between items-center mb-2"><span class="font-bold text-gray-700 flex items-center"><span class="w-2 h-2 rounded-full bg-${i%2?'pink':'blue'}-500 mr-2"></span>${p}</span></div><div class="grid grid-cols-2 gap-2 text-sm"><div class="bg-white p-2 rounded border border-gray-100"><div class="text-xs text-gray-400">台幣</div><div class="font-bold text-blue-600">${s.TWD.toLocaleString()}</div></div><div class="bg-white p-2 rounded border border-gray-100"><div class="text-xs text-gray-400">日幣</div><div class="font-bold text-pink-600">${s.JPY.toLocaleString()}</div></div></div></div>`;
+            });
+        }
+
+        function exportData(format) {
+            const book = getCurrentBook();
+            const dateStr = new Date().toISOString().split('T')[0];
+            const rate = book.rate || 0.22;
+            
+            if (format === 'json') {
+                const blob = new Blob([JSON.stringify(moneyTrackerData, null, 2)], {type: 'application/json'});
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `money_tracker_${dateStr}.json`; a.click();
+            } else {
+                let csv = '\uFEFF類別,日期,備註,台幣(靖),日幣(靖),台幣(軒),日幣(軒),付款方式,折合台幣(約),累計總花費(台幣)\n';
+                let entries = [];
+                book.groups.forEach(g => g.entries.forEach(e => { if(e.amount>0) entries.push({...e, groupName: g.name}) }));
+                entries.sort((a,b) => {
+                    if (a.category !== b.category) return a.category.localeCompare(b.category);
+                    return b.timestamp - a.timestamp;
+                });
+
+                let runTotal = 0;
+                let catStats = {};
+
+                entries.forEach(e => {
+                    const isTWD = e.currency === 'TWD';
+                    const val = isTWD ? e.amount : Math.round(e.amount * rate);
+                    runTotal += val;
+                    
+                    let cols = ['','','',''];
+                    if (e.person === '靖') {
+                        if (isTWD) { cols[0]=e.amount; } else { cols[1]=e.amount; }
+                    } else {
+                        if (isTWD) { cols[2]=e.amount; } else { cols[3]=e.amount; }
+                    }
+                    
+                    if(!catStats[e.category]) catStats[e.category] = { TWD:0, JPY:0, Total:0 };
+                    if(isTWD) catStats[e.category].TWD += e.amount; else catStats[e.category].JPY += e.amount;
+                    catStats[e.category].Total += val;
+
+                    csv += `${e.category},${e.dateStr},${(e.remark||'').replace(/,/g,' ')},${cols.join(',')},${e.groupName},${val},${runTotal}\n`;
+                });
+                
+                // Section 3: Category Summary
+                csv += `\n=== 各類別花費統計 (匯率: ${rate}) ===\n類別,累積台幣,累積日幣,折合台幣總計\n`;
+                Object.keys(catStats).forEach(c => {
+                    const s = catStats[c];
+                    csv += `${c},${s.TWD},${s.JPY},${s.Total}\n`;
+                });
+
+                // Section 4: Payment Method Detailed Summary (Restored)
+                csv += `\n=== 付款方式詳細統計 ===\n`;
+                book.groups.forEach(g => {
+                    const tTotal = g.entries.filter(e => e.amount > 0).reduce((a,c) => a+c.amount, 0);
+                    const budget = g.budget ? parseInt(g.budget) : 0;
+                    const remaining = budget > 0 ? (budget - tTotal) : '-';
+                    
+                    csv += `\n[${g.name}] (預算: ${budget} | 已用: ${tTotal} ${g.defaultCurrency} | 剩餘: ${remaining})\n`;
+                    csv += `日期,類別,金額,備註\n`;
+                    
+                    const groupEntries = g.entries.filter(e => e.amount > 0).sort((a,b) => b.timestamp - a.timestamp);
+                    if (groupEntries.length === 0) {
+                        csv += `無消費記錄,,,\n`;
+                    } else {
+                        groupEntries.forEach(e => {
+                            const remark = (e.remark || '').replace(/,/g, ' ');
+                            csv += `${e.dateStr},${e.category},${e.amount},${remark}\n`;
+                        });
+                    }
+                    csv += `,,,本項小計: ${tTotal} ${g.defaultCurrency}\n`;
+                });
+                
+                const blob = new Blob([csv], {type: 'text/csv;charset=utf-8'});
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `expense_report_${dateStr}.csv`; a.click();
+            }
+        }
+
+        function renderHistoryLog() {
+            const list = document.getElementById('history-list');
+            list.innerHTML = '';
+            const book = getCurrentBook();
+            let entries = [];
+            book.groups.forEach(g => {
+                g.entries.forEach(e => entries.push({...e, group: g.name}));
+            });
+            entries.sort((a,b) => b.timestamp - a.timestamp);
+            
+            if (entries.length === 0) {
+                list.innerHTML = '<li class="text-gray-500 italic text-center py-4">尚無操作記錄</li>';
+                return;
+            }
+
+            entries.slice(0, 10).forEach(e => {
+                const isReset = e.amount < 0;
+                list.innerHTML += `
+                <li class="text-sm py-2 px-3 border-l-4 ${isReset?'border-red-400 bg-red-50':'border-blue-400 bg-gray-50'} rounded flex justify-between items-center">
+                    <div><span class="font-bold text-gray-700">${e.category}</span><span class="text-xs text-gray-500 ml-2">${e.group}</span></div>
+                    <div class="text-right"><div class="font-bold ${e.currency==='TWD'?'text-blue-600':'text-pink-600'}">${e.amount} <span class="text-xs">${e.currency}</span></div><div class="text-xs text-gray-400">${e.dateStr.split(' ')[1]}</div></div>
+                </li>`;
+            });
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            if(t) { document.getElementById('toast-message').innerText = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
+        }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+        function importData(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const json = JSON.parse(e.target.result);
+                    if (json.books) {
+                        Object.keys(json.books).forEach(k => {
+                            if (!moneyTrackerData.books[k]) { moneyTrackerData.books[k] = json.books[k]; } else {
+                                const newId = k + '_' + Date.now();
+                                const newBook = {...json.books[k], id: newId, name: json.books[k].name + ' (匯入)'};
+                                moneyTrackerData.books[newId] = newBook;
+                            }
+                        });
+                    }
+                    saveData(); renderUI(); showToast('匯入成功');
+                } catch (err) { showToast('檔案格式錯誤'); }
+            };
+            reader.readAsText(file); input.value = '';
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            initCharts();
+            loadData();
+        });
+    </script>
+</body>
+</html>
