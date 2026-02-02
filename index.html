@@ -861,7 +861,8 @@
                     if(isTWD) catStats[e.category].TWD += e.amount; else catStats[e.category].JPY += e.amount;
                     catStats[e.category].Total += val;
 
-                    csv += `${e.category},${e.dateStr},${(e.remark||'').replace(/,/g,' ')},${cols.join(',')},${e.groupName},${val},${runTotal}\n`;
+                    const cleanRemark = (e.remark || '').replace(/[\r\n,"]/g, ' ').trim();
+                    csv += `${e.category},${e.dateStr},${cleanRemark},${cols.join(',')},${e.groupName},${val},${runTotal}\n`;
                 });
                 
                 // Section 3: Category Summary
@@ -886,7 +887,7 @@
                         csv += `無消費記錄,,,\n`;
                     } else {
                         groupEntries.forEach(e => {
-                            const remark = (e.remark || '').replace(/,/g, ' ');
+                            const remark = (e.remark || '').replace(/[\r\n,"]/g, ' ').trim();
                             csv += `${e.dateStr},${e.category},${e.amount},${remark}\n`;
                         });
                     }
@@ -915,10 +916,18 @@
 
             entries.slice(0, 10).forEach(e => {
                 const isReset = e.amount < 0;
+                const remarkDisplay = e.remark ? `<div class="text-xs text-gray-500 mt-0.5 truncate max-w-[180px] md:max-w-[300px]" title="${e.remark}">${e.remark}</div>` : '';
+
                 list.innerHTML += `
                 <li class="text-sm py-2 px-3 border-l-4 ${isReset?'border-red-400 bg-red-50':'border-blue-400 bg-gray-50'} rounded flex justify-between items-center">
-                    <div><span class="font-bold text-gray-700">${e.category}</span><span class="text-xs text-gray-500 ml-2">${e.group}</span></div>
-                    <div class="text-right"><div class="font-bold ${e.currency==='TWD'?'text-blue-600':'text-pink-600'}">${e.amount} <span class="text-xs">${e.currency}</span></div><div class="text-xs text-gray-400">${e.dateStr.split(' ')[1]}</div></div>
+                    <div class="overflow-hidden mr-2">
+                        <div><span class="font-bold text-gray-700">${e.category}</span><span class="text-xs text-gray-500 ml-2">${e.group}</span></div>
+                        ${remarkDisplay}
+                    </div>
+                    <div class="text-right flex-shrink-0">
+                        <div class="font-bold ${e.currency==='TWD'?'text-blue-600':'text-pink-600'}">${e.amount} <span class="text-xs">${e.currency}</span></div>
+                        <div class="text-xs text-gray-400">${e.dateStr.split(' ')[1]}</div>
+                    </div>
                 </li>`;
             });
         }
